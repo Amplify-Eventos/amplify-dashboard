@@ -53,14 +53,14 @@ export async function POST(request: Request) {
       console.error('Failed to update agent:', agentError);
     }
 
-    // 2. Save to agent_memory
+    // 2. Save to agent_memory (using actual schema with 'content' field)
     const { error: memoryError } = await supabase
       .from('agent_memory')
       .insert({
         agent_id: agentId,
         memory_type: 'heartbeat_report',
         key: `heartbeat_${Date.now()}`,
-        value: JSON.stringify({
+        content: JSON.stringify({
           summary,
           findings,
           blockers,
@@ -74,14 +74,14 @@ export async function POST(request: Request) {
       console.error('Failed to save memory:', memoryError);
     }
 
-    // 3. Log report event
+    // 3. Log report event (using actual schema)
     await supabase
       .from('task_history')
       .insert({
         task_id: null,
         agent_id: agentId,
         action: 'agent_report',
-        details: JSON.stringify({ summary, timestamp: now })
+        note: summary
       });
 
     // 4. Update tasks that were completed
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
           task_id: taskId,
           agent_id: agentId,
           action: 'completed',
-          details: JSON.stringify({ completedAt: now })
+          note: `Task completed at ${now}`
         });
     }
 
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
           task_id: taskId,
           agent_id: agentId,
           action: 'started',
-          details: JSON.stringify({ startedAt: now })
+          note: `Task started at ${now}`
         });
     }
 

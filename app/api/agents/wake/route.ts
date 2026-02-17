@@ -68,14 +68,14 @@ export async function POST(request: Request) {
       console.error('Failed to load memory:', memoryError);
     }
 
-    // 4. Log wake event to task_history
+    // 4. Log wake event to task_history (using actual schema)
     await supabase
       .from('task_history')
       .insert({
         task_id: null, // System event, not task-specific
         agent_id: agentId,
         action: 'agent_wake',
-        details: JSON.stringify({ agentName, timestamp: now })
+        note: `Agent ${agentName} woke up at ${now}`
       });
 
     return NextResponse.json({
