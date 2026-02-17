@@ -16,6 +16,7 @@ export default function Navbar() {
             </Link>
             
             <div className="hidden md:flex items-center gap-1">
+              <NavLink href="/mission-control">Mission Control</NavLink>
               <NavLink href="/tasks">Tasks</NavLink>
               <NavLink href="/agents">Agents</NavLink>
             </div>

@@ -99,21 +99,34 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
   return true;
 }
 
-// Update agent status
-export async function updateAgentStatus(agentId: string, status: AgentStatus) {
-  const { error } = await supabase
-    .from('agents')
-    .update({ 
-      status, 
-      last_heartbeat: new Date().toISOString(),
-      updated_at: new Date().toISOString() 
-    })
-    .eq('id', agentId);
+export interface TaskHistory {
+  id: string;
+  task_id: string | null;
+  agent_id: string | null;
+  action: string;
+  note: string | null;
+  created_at: string;
+  // Joined data
+  agent?: Agent | null;
+  task?: Task | null;
+}
+
+// Fetch recent activity from task_history
+export async function getRecentActivity(limit = 20): Promise<TaskHistory[]> {
+  const { data, error } = await supabase
+    .from('task_history')
+    .select(`
+      *,
+      agent:agents(name, role),
+      task:tasks(title)
+    `)
+    .order('created_at', { ascending: false })
+    .limit(limit);
 
   if (error) {
-    console.error('Error updating agent:', error);
-    return false;
+    console.error('Error fetching activity:', error);
+    return [];
   }
 
-  return true;
+  return data || [];
 }

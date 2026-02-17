@@ -43,7 +43,19 @@ export function TaskDetailClient({ task: initialTask, agents }: TaskDetailClient
 
       if (!response.ok) throw new Error('Failed to update task');
       
+      // Optimistic update
       setTask(prev => ({ ...prev, ...updates, updated_at: new Date().toISOString() }));
+      
+      // Trigger on-demand revalidation for ISR cache
+      fetch('/api/revalidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          path: '/tasks', 
+          secret: 'amplify-revalidate-2026' 
+        }),
+      }).catch(err => console.warn('Revalidation failed:', err));
+      
     } catch (error) {
       console.error('Error updating task:', error);
     } finally {

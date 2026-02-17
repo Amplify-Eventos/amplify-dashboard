@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { getSystemStats } from '@/lib/system';
-import LogStream from '@/components/LogStream';
+import LazyLogStream from '@/components/LogStreamLazy';
+
+export const revalidate = 30; // ISR: Revalidate every 30 seconds
 
 export default async function Home() {
   const stats = await getSystemStats();
@@ -23,6 +25,30 @@ export default async function Home() {
           <StatCard title="Tasks Pending" value={stats.pendingTasks.toString()} sub="System Inbox" color="amber" />
           <StatCard title="Memory Load" value={stats.memoryUsage} sub={stats.memorySub} color="purple" />
         </div>
+
+        {/* Mission Control Banner */}
+        <Link href="/mission-control" className="group block mb-8 p-6 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-emerald-600/20 backdrop-blur-sm rounded-2xl border border-zinc-700 hover:border-blue-500/50 transition-all duration-300 shadow-xl overflow-hidden">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="text-4xl">🚀</div>
+              <div>
+                <h2 className="text-2xl font-black text-white group-hover:text-blue-300 transition-colors">
+                  <span className="text-blue-500">◆</span> MISSION CONTROL
+                </h2>
+                <p className="text-zinc-400 text-sm">Centralized dashboard for real-time system monitoring</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1.5 text-xs font-mono bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-full border border-emerald-500/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                LIVE
+              </span>
+              <span className="text-sm font-semibold text-blue-400 group-hover:translate-x-1 transition-transform">
+                Open Dashboard →
+              </span>
+            </div>
+          </div>
+        </Link>
 
         {/* Main Navigation Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
@@ -65,7 +91,7 @@ export default async function Home() {
 
         {/* Real-time Logs */}
         <div className="mb-16">
-          <LogStream />
+          <LazyLogStream />
         </div>
 
         {/* Footer */}

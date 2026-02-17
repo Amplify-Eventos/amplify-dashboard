@@ -1,11 +1,12 @@
 'use client';
 
-import { Agent, Task } from '@/lib/supabase-client';
+import { Agent, Task, TaskHistory, getRecentActivity, getAgents, getTasks } from '@/lib/supabase-client';
 import { useState, useEffect } from 'react';
 
 interface Props {
   agents: Agent[];
   tasks: Task[];
+  initialActivities: TaskHistory[];
   stats: {
     activeAgents: number;
     totalAgents: number;
@@ -16,39 +17,65 @@ interface Props {
   };
 }
 
-export default function MissionControlClient({ agents, tasks, stats }: Props) {
+export default function MissionControlClient({ agents: initialAgents, tasks: initialTasks, initialActivities, stats: initialStats }: Props) {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [logs, setLogs] = useState<{ time: string; agent: string; action: string; type: 'info' | 'success' | 'warning' }[]>([]);
+  
+  // State for live data
+  const [agents, setAgents] = useState<Agent[]>(initialAgents);
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [activities, setActivities] = useState<TaskHistory[]>(initialActivities);
+  const [stats, setStats] = useState(initialStats);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Simulate live activity feed
+  // Poll for live activity feed and refresh data
   useEffect(() => {
-    const activities = [
-      { agent: 'Backend Architect', action: 'Migration verified', type: 'success' as const },
-      { agent: 'Frontend', action: 'Build optimized', type: 'success' as const },
-      { agent: 'Growth', action: 'GBP status checked', type: 'info' as const },
-      { agent: 'TechLead', action: 'Heartbeat complete', type: 'info' as const },
-    ];
+    const fetchData = async () => {
+      try {
+        const [newActivities, newAgents, newTasks] = await Promise.all([
+          getRecentActivity(20),
+          getAgents(),
+          getTasks()
+        ]);
+        
+        if (newActivities && newActivities.length > 0) {
+          setActivities(newActivities);
+        }
+        if (newAgents) setAgents(newAgents);
+        if (newTasks) {
+          setTasks(newTasks);
+          // Recalculate stats
+          const activeAgents = newAgents?.filter(a => a.status === 'working').length || 0;
+          const pendingTasks = newTasks.filter(t => t.status !== 'done').length;
+          const completedTasks = newTasks.filter(t => t.status === 'done').length;
+          const inProgressTasks = newTasks.filter(t => t.status === 'in_progress').length;
+          
+          setStats(prev => ({
+            ...prev,
+            activeAgents: newAgents?.filter(a => a.status === 'working').length || 0,
+            totalAgents: newAgents?.length || 0,
+            pendingTasks: newTasks.filter(t => t.status !== 'done').length,
+            completedTasks: newTasks.filter(t => t.status === 'done').length,
+            inProgressTasks: newTasks.filter(t => t.status === 'in_progress').length,
+            totalTasks: newTasks.length
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to fetch data:', err);
+      }
+    };
 
-    const interval = setInterval(() => {
-      const activity = activities[Math.floor(Math.random() * activities.length)];
-      setLogs(prev => [
-        { time: new Date().toLocaleTimeString(), ...activity },
-        ...prev.slice(0, 19)
-      ]);
-    }, 5000);
-
+    // Poll every 5 seconds
+    const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
 
   const formatUptime = () => {
-    const hours = Math.floor(Math.random() * 24);
-    const minutes = Math.floor(Math.random() * 60);
-    return `${hours}h ${minutes}m`;
+    // This could be real data if we tracked agent uptime
+    return "99.9%"; 
   };
 
   return (
@@ -103,7 +130,7 @@ export default function MissionControlClient({ agents, tasks, stats }: Props) {
           <StatCard
             title="System Uptime"
             value={formatUptime()}
-            subtext="99.9% availability"
+            subtext="Global Availability"
             icon="⚡"
             color="purple"
           />
@@ -134,21 +161,43 @@ export default function MissionControlClient({ agents, tasks, stats }: Props) {
               </span>
             </div>
             <div className="p-4 space-y-2 max-h-[400px] overflow-y-auto">
-              {logs.map((log, i) => (
-                <div
-                  key={i}
-                  className="flex items-start gap-3 text-sm font-mono p-2 rounded bg-zinc-800/30"
-                >
-                  <span className="text-zinc-500 text-xs">{log.time}</span>
-                  <span className={`font-medium ${
-                    log.type === 'success' ? 'text-emerald-400' :
-                    log.type === 'warning' ? 'text-amber-400' : 'text-blue-400'
-                  }`}>
-                    [{log.agent}]
-                  </span>
-                  <span className="text-zinc-300">{log.action}</span>
-                </div>
-              ))}
+              {activities.length === 0 ? (
+                <div className="text-zinc-500 text-sm italic p-4 text-center">No recent activity found.</div>
+              ) : (
+                activities.map((activity) => (
+                  <div
+                    key={activity.id}
+                    className="flex items-start gap-3 text-sm font-mono p-2 rounded bg-zinc-800/30"
+                  >
+                    <span className="text-zinc-500 text-xs whitespace-nowrap">
+                      {new Date(activity.created_at).toLocaleTimeString()}
+                    </span>
+                    <span className="font-medium text-blue-400 whitespace-nowrap">
+                      [{activity.agent?.name || 'System'}]
+                    </span>
+                    <span className="text-zinc-300">
+                      <span className={
+                        activity.action === 'completed' ? 'text-emerald-400 font-bold' :
+                        activity.action === 'started' ? 'text-amber-400 font-bold' :
+                        activity.action === 'error' ? 'text-red-400 font-bold' :
+                        'text-zinc-400'
+                      }>
+                        {activity.action.toUpperCase()}
+                      </span>
+                      {activity.task && (
+                        <span className="text-zinc-500 ml-1">
+                          on task "{activity.task.title}"
+                        </span>
+                      )}
+                      {activity.note && (
+                        <span className="block text-xs text-zinc-500 mt-0.5 ml-1">
+                          {activity.note}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -169,21 +218,21 @@ export default function MissionControlClient({ agents, tasks, stats }: Props) {
               </span>
             </div>
           </div>
-          <div className="p-4 grid grid-cols-3 gap-4">
+          <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Pipeline visualization */}
             <PipelineColumn
               title="Backlog"
-              tasks={tasks.filter(t => t.status === 'backlog').slice(0, 3)}
+              tasks={tasks.filter(t => t.status === 'backlog').slice(0, 5)}
               color="zinc"
             />
             <PipelineColumn
               title="In Progress"
-              tasks={tasks.filter(t => t.status === 'in_progress').slice(0, 3)}
+              tasks={tasks.filter(t => t.status === 'in_progress').slice(0, 5)}
               color="blue"
             />
             <PipelineColumn
               title="Done"
-              tasks={tasks.filter(t => t.status === 'done').slice(0, 3)}
+              tasks={tasks.filter(t => t.status === 'done').slice(0, 5)}
               color="emerald"
             />
           </div>
@@ -258,10 +307,15 @@ function AgentRow({ agent }: { agent: Agent }) {
     error: 'ERROR',
   };
 
+  // Safe access with fallback for unknown statuses
+  const status = agent.status || 'offline';
+  const colorClass = statusColors[status as keyof typeof statusColors] || statusColors.offline;
+  const label = statusLabel[status as keyof typeof statusLabel] || statusLabel.offline;
+
   return (
     <div className="px-4 py-3 flex items-center justify-between hover:bg-zinc-800/30 transition-colors">
       <div className="flex items-center gap-3">
-        <span className={`w-2 h-2 rounded-full ${statusColors[agent.status]} animate-pulse`}></span>
+        <span className={`w-2 h-2 rounded-full ${colorClass} animate-pulse`}></span>
         <div>
           <div className="font-medium text-sm">{agent.name}</div>
           <div className="text-xs text-zinc-500">{agent.role || 'Agent'}</div>
@@ -274,11 +328,11 @@ function AgentRow({ agent }: { agent: Agent }) {
             : 'N/A'}
         </span>
         <span className={`text-xs px-2 py-0.5 rounded ${
-          agent.status === 'working' ? 'bg-emerald-500/20 text-emerald-400' :
-          agent.status === 'idle' ? 'bg-amber-500/20 text-amber-400' :
+          status === 'working' ? 'bg-emerald-500/20 text-emerald-400' :
+          status === 'idle' ? 'bg-amber-500/20 text-amber-400' :
           'bg-zinc-500/20 text-zinc-400'
         }`}>
-          {statusLabel[agent.status]}
+          {label}
         </span>
       </div>
     </div>
@@ -298,16 +352,18 @@ function PipelineColumn({ title, tasks, color }: {
 
   return (
     <div className={`rounded-lg border ${colorClasses[color]} p-3`}>
-      <div className="text-xs font-bold text-zinc-400 mb-2">{title} ({tasks.length})</div>
+      <div className="text-xs font-bold text-zinc-400 mb-2">{title} <span className="text-zinc-500">({tasks.length})</span></div>
       <div className="space-y-2">
         {tasks.length === 0 ? (
-          <div className="text-xs text-zinc-600 italic">No tasks</div>
+          <div className="text-xs text-zinc-600 italic py-2 text-center">No tasks</div>
         ) : (
           tasks.map(task => (
-            <div key={task.id} className="text-xs p-2 rounded bg-zinc-800/50 border border-zinc-700">
-              <div className="font-medium text-zinc-300 truncate">{task.title}</div>
+            <div key={task.id} className="text-xs p-2 rounded bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors">
+              <div className="font-medium text-zinc-300 truncate mb-1">{task.title}</div>
               {task.assigned_agent && (
-                <div className="text-zinc-500 mt-1">→ {task.assigned_agent.name}</div>
+                <div className="text-zinc-500 text-[10px] flex items-center gap-1">
+                  <span>👤</span> {task.assigned_agent.name}
+                </div>
               )}
             </div>
           ))

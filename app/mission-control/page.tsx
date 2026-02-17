@@ -1,12 +1,13 @@
-import { getAgents, getTasks } from '@/lib/supabase-client';
+import { getAgents, getTasks, getRecentActivity, TaskHistory } from '@/lib/supabase-client';
 import MissionControlClient from './MissionControlClient';
 
 export const revalidate = 10; // Revalidate every 10 seconds
 
 export default async function MissionControl() {
-  const [agents, tasks] = await Promise.all([
+  const [agents, tasks, activities] = await Promise.all([
     getAgents(),
-    getTasks()
+    getTasks(),
+    getRecentActivity(20)
   ]);
 
   // Calculate stats
@@ -19,6 +20,7 @@ export default async function MissionControl() {
     <MissionControlClient
       agents={agents}
       tasks={tasks}
+      initialActivities={activities}
       stats={{
         activeAgents,
         totalAgents: agents.length,
