@@ -17,6 +17,9 @@ interface Props {
   };
 }
 
+// Dashboard deploy date (2026-02-17)
+const DASHBOARD_DEPLOY_DATE = new Date('2026-02-17T10:35:00-03:00');
+
 export default function MissionControlClient({ agents: initialAgents, tasks: initialTasks, initialActivities, stats: initialStats }: Props) {
   const [currentTime, setCurrentTime] = useState(new Date());
   
@@ -48,11 +51,6 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
         if (newTasks) {
           setTasks(newTasks);
           // Recalculate stats
-          const activeAgents = newAgents?.filter(a => a.status === 'working').length || 0;
-          const pendingTasks = newTasks.filter(t => t.status !== 'done').length;
-          const completedTasks = newTasks.filter(t => t.status === 'done').length;
-          const inProgressTasks = newTasks.filter(t => t.status === 'in_progress').length;
-          
           setStats(prev => ({
             ...prev,
             activeAgents: newAgents?.filter(a => a.status === 'working').length || 0,
@@ -73,9 +71,47 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
     return () => clearInterval(interval);
   }, []);
 
+  // Calculate real uptime
   const formatUptime = () => {
-    // This could be real data if we tracked agent uptime
-    return "99.9%"; 
+    const now = currentTime;
+    const diff = now.getTime() - DASHBOARD_DEPLOY_DATE.getTime();
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (days > 0) {
+      return `${days}d ${hours}h`;
+    }
+    return `${hours}h ${minutes}m`;
+  };
+
+  // Get current task for an agent
+  const getCurrentTask = (agentId: string): Task | undefined => {
+    return tasks.find(t => t.assigned_agent_id === agentId && t.status === 'in_progress');
+  };
+
+  // Calculate time since last heartbeat
+  const getTimeSinceHeartbeat = (lastHeartbeat: string | null): string => {
+    if (!lastHeartbeat) return 'N/A';
+    
+    const last = new Date(lastHeartbeat);
+    const diff = currentTime.getTime() - last.getTime();
+    const minutes = Math.floor(diff / (1000 * 60));
+    
+    if (minutes < 1) return 'agora';
+    if (minutes < 60) return `${minutes}m atrás`;
+    
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+  };
+
+  // Check if agent is truly active (heartbeat within last 15 minutes)
+  const isAgentActive = (agent: Agent): boolean => {
+    if (!agent.last_heartbeat) return false;
+    const last = new Date(agent.last_heartbeat);
+    const diff = currentTime.getTime() - last.getTime();
+    return diff < 15 * 60 * 1000; // 15 minutes
   };
 
   return (
@@ -94,7 +130,7 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
           </div>
           <div className="flex items-center gap-6 text-sm">
             <div className="text-zinc-400 font-mono" suppressHydrationWarning>
-              {currentTime.toLocaleTimeString()}
+              {currentTime.toLocaleTimeString('pt-BR')}
             </div>
             <div className="text-zinc-500">
               {currentTime.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
@@ -107,30 +143,30 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
         {/* Stats Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <StatCard
-            title="Active Agents"
-            value={stats.activeAgents.toString()}
-            subtext={`of ${stats.totalAgents} total`}
+            title="Agentes Ativos"
+            value={agents.filter(a => isAgentActive(a)).length.toString()}
+            subtext={`de ${agents.length} total`}
             icon="🤖"
             color="blue"
           />
           <StatCard
-            title="Tasks Pending"
+            title="Tasks Pendentes"
             value={stats.pendingTasks.toString()}
-            subtext={`${stats.inProgressTasks} in progress`}
+            subtext={`${stats.inProgressTasks} em andamento`}
             icon="📋"
             color="amber"
           />
           <StatCard
-            title="Completed"
+            title="Completadas"
             value={stats.completedTasks.toString()}
-            subtext={`of ${stats.totalTasks} total`}
+            subtext={`de ${stats.totalTasks} total`}
             icon="✅"
             color="emerald"
           />
           <StatCard
-            title="System Uptime"
+            title="Uptime"
             value={formatUptime()}
-            subtext="Global Availability"
+            subtext="Sistema Online"
             icon="⚡"
             color="purple"
           />
@@ -138,16 +174,55 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Agents Panel */}
+          {/* Agents Panel - Enhanced */}
           <div className="lg:col-span-1 bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
               <h2 className="font-bold text-zinc-300">AGENT STATUS</h2>
-              <span className="text-xs text-zinc-500 font-mono">{agents.length} AGENTS</span>
+              <span className="text-xs text-zinc-500 font-mono">
+                {agents.filter(a => isAgentActive(a)).length}/{agents.length} ONLINE
+              </span>
             </div>
             <div className="divide-y divide-zinc-800">
-              {agents.map(agent => (
-                <AgentRow key={agent.id} agent={agent} />
-              ))}
+              {agents.map(agent => {
+                const currentTask = getCurrentTask(agent.id);
+                const isActive = isAgentActive(agent);
+                
+                return (
+                  <div key={agent.id} className="px-4 py-3 hover:bg-zinc-800/30 transition-colors">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-3">
+                        <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-500'}`}></span>
+                        <div>
+                          <div className="font-medium text-sm">{agent.name}</div>
+                          <div className="text-xs text-zinc-500">{agent.role || 'Agent'}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          isActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-500/20 text-zinc-400'
+                        }`}>
+                          {isActive ? 'ONLINE' : 'OFFLINE'}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Current Task */}
+                    {currentTask && (
+                      <div className="mt-2 ml-5 p-2 rounded bg-blue-500/10 border border-blue-500/20">
+                        <div className="text-xs text-blue-400 font-medium flex items-center gap-1">
+                          <span className="animate-pulse">▶</span> Executando:
+                        </div>
+                        <div className="text-xs text-zinc-300 truncate">{currentTask.title}</div>
+                      </div>
+                    )}
+                    
+                    {/* Last Heartbeat */}
+                    <div className="mt-1 ml-5 text-[10px] text-zinc-600">
+                      Último ping: {getTimeSinceHeartbeat(agent.last_heartbeat)}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -162,7 +237,9 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
             </div>
             <div className="p-4 space-y-2 max-h-[400px] overflow-y-auto">
               {activities.length === 0 ? (
-                <div className="text-zinc-500 text-sm italic p-4 text-center">No recent activity found.</div>
+                <div className="text-zinc-500 text-sm italic p-4 text-center">
+                  Nenhuma atividade recente. Agentes registrarão ações aqui.
+                </div>
               ) : (
                 activities.map((activity) => (
                   <div
@@ -170,7 +247,7 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
                     className="flex items-start gap-3 text-sm font-mono p-2 rounded bg-zinc-800/30"
                   >
                     <span className="text-zinc-500 text-xs whitespace-nowrap">
-                      {new Date(activity.created_at).toLocaleTimeString()}
+                      {new Date(activity.created_at).toLocaleTimeString('pt-BR')}
                     </span>
                     <span className="font-medium text-blue-400 whitespace-nowrap">
                       [{activity.agent?.name || 'System'}]
@@ -179,6 +256,8 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
                       <span className={
                         activity.action === 'completed' ? 'text-emerald-400 font-bold' :
                         activity.action === 'started' ? 'text-amber-400 font-bold' :
+                        activity.action === 'wake' ? 'text-green-400 font-bold' :
+                        activity.action === 'idle' ? 'text-yellow-400 font-bold' :
                         activity.action === 'error' ? 'text-red-400 font-bold' :
                         'text-zinc-400'
                       }>
@@ -186,7 +265,7 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
                       </span>
                       {activity.task && (
                         <span className="text-zinc-500 ml-1">
-                          on task "{activity.task.title}"
+                          "{activity.task.title}"
                         </span>
                       )}
                       {activity.note && (
@@ -202,13 +281,16 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
           </div>
         </div>
 
-        {/* Tasks Overview */}
+        {/* Tasks Pipeline - Enhanced with 4 columns */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
             <h2 className="font-bold text-zinc-300">TASK PIPELINE</h2>
             <div className="flex gap-2">
-              <span className="text-xs px-2 py-1 rounded bg-amber-500/20 text-amber-400">
-                {stats.pendingTasks} pending
+              <span className="text-xs px-2 py-1 rounded bg-zinc-500/20 text-zinc-400">
+                {tasks.filter(t => t.status === 'backlog').length} backlog
+              </span>
+              <span className="text-xs px-2 py-1 rounded bg-purple-500/20 text-purple-400">
+                {tasks.filter(t => t.status === 'todo').length} todo
               </span>
               <span className="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-400">
                 {stats.inProgressTasks} in progress
@@ -218,21 +300,26 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
               </span>
             </div>
           </div>
-          <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Pipeline visualization */}
+          <div className="p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
             <PipelineColumn
-              title="Backlog"
-              tasks={tasks.filter(t => t.status === 'backlog').slice(0, 5)}
+              title="📥 Backlog"
+              tasks={tasks.filter(t => t.status === 'backlog').slice(0, 4)}
               color="zinc"
             />
             <PipelineColumn
-              title="In Progress"
-              tasks={tasks.filter(t => t.status === 'in_progress').slice(0, 5)}
-              color="blue"
+              title="📝 Todo"
+              tasks={tasks.filter(t => t.status === 'todo').slice(0, 4)}
+              color="purple"
             />
             <PipelineColumn
-              title="Done"
-              tasks={tasks.filter(t => t.status === 'done').slice(0, 5)}
+              title="🔄 In Progress"
+              tasks={tasks.filter(t => t.status === 'in_progress').slice(0, 4)}
+              color="blue"
+              highlight
+            />
+            <PipelineColumn
+              title="✅ Done"
+              tasks={tasks.filter(t => t.status === 'done').slice(0, 4)}
               color="emerald"
             />
           </div>
@@ -240,19 +327,19 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
 
         {/* Quick Actions */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
-          <h2 className="font-bold text-zinc-300 mb-4">QUICK ACTIONS</h2>
+          <h2 className="font-bold text-zinc-300 mb-4">AÇÕES RÁPIDAS</h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <button className="px-4 py-3 bg-blue-500/20 border border-blue-500/30 rounded-lg text-blue-400 hover:bg-blue-500/30 transition-colors text-sm font-medium">
-              🔄 Refresh All Agents
+              🔄 Atualizar Agentes
             </button>
             <button className="px-4 py-3 bg-amber-500/20 border border-amber-500/30 rounded-lg text-amber-400 hover:bg-amber-500/30 transition-colors text-sm font-medium">
-              ⏸️ Pause Cron Jobs
+              ⏸️ Pausar Cron Jobs
             </button>
             <button className="px-4 py-3 bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-emerald-400 hover:bg-emerald-500/30 transition-colors text-sm font-medium">
-              📊 View Analytics
+              📊 Ver Analytics
             </button>
             <button className="px-4 py-3 bg-purple-500/20 border border-purple-500/30 rounded-lg text-purple-400 hover:bg-purple-500/30 transition-colors text-sm font-medium">
-              ⚙️ System Config
+              ⚙️ Configurações
             </button>
           </div>
         </div>
@@ -260,7 +347,7 @@ export default function MissionControlClient({ agents: initialAgents, tasks: ini
 
       {/* Footer */}
       <footer className="border-t border-zinc-800 py-4 text-center text-xs text-zinc-500">
-        AMPLIFY OS v1.0 • Mission Control • Powered by Supabase
+        AMPLIFY OS v1.0 • Mission Control • Powered by Supabase • Atualiza a cada 5s
       </footer>
     </div>
   );
@@ -292,79 +379,41 @@ function StatCard({ title, value, subtext, icon, color }: {
   );
 }
 
-function AgentRow({ agent }: { agent: Agent }) {
-  const statusColors = {
-    working: 'bg-emerald-500',
-    idle: 'bg-amber-500',
-    offline: 'bg-zinc-500',
-    error: 'bg-red-500',
-  };
-
-  const statusLabel = {
-    working: 'ACTIVE',
-    idle: 'IDLE',
-    offline: 'OFFLINE',
-    error: 'ERROR',
-  };
-
-  // Safe access with fallback for unknown statuses
-  const status = agent.status || 'offline';
-  const colorClass = statusColors[status as keyof typeof statusColors] || statusColors.offline;
-  const label = statusLabel[status as keyof typeof statusLabel] || statusLabel.offline;
-
-  return (
-    <div className="px-4 py-3 flex items-center justify-between hover:bg-zinc-800/30 transition-colors">
-      <div className="flex items-center gap-3">
-        <span className={`w-2 h-2 rounded-full ${colorClass} animate-pulse`}></span>
-        <div>
-          <div className="font-medium text-sm">{agent.name}</div>
-          <div className="text-xs text-zinc-500">{agent.role || 'Agent'}</div>
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-mono text-zinc-400">
-          {agent.last_heartbeat
-            ? new Date(agent.last_heartbeat).toLocaleTimeString()
-            : 'N/A'}
-        </span>
-        <span className={`text-xs px-2 py-0.5 rounded ${
-          status === 'working' ? 'bg-emerald-500/20 text-emerald-400' :
-          status === 'idle' ? 'bg-amber-500/20 text-amber-400' :
-          'bg-zinc-500/20 text-zinc-400'
-        }`}>
-          {label}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function PipelineColumn({ title, tasks, color }: {
+function PipelineColumn({ title, tasks, color, highlight }: {
   title: string;
   tasks: Task[];
-  color: 'zinc' | 'blue' | 'emerald';
+  color: 'zinc' | 'blue' | 'emerald' | 'purple';
+  highlight?: boolean;
 }) {
   const colorClasses = {
     zinc: 'border-zinc-700 bg-zinc-800/30',
     blue: 'border-blue-500/30 bg-blue-500/5',
     emerald: 'border-emerald-500/30 bg-emerald-500/5',
+    purple: 'border-purple-500/30 bg-purple-500/5',
   };
 
   return (
-    <div className={`rounded-lg border ${colorClasses[color]} p-3`}>
+    <div className={`rounded-lg border ${colorClasses[color]} p-3 ${highlight ? 'ring-2 ring-blue-500/30' : ''}`}>
       <div className="text-xs font-bold text-zinc-400 mb-2">{title} <span className="text-zinc-500">({tasks.length})</span></div>
       <div className="space-y-2">
         {tasks.length === 0 ? (
-          <div className="text-xs text-zinc-600 italic py-2 text-center">No tasks</div>
+          <div className="text-xs text-zinc-600 italic py-2 text-center">Vazio</div>
         ) : (
           tasks.map(task => (
             <div key={task.id} className="text-xs p-2 rounded bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors">
               <div className="font-medium text-zinc-300 truncate mb-1">{task.title}</div>
-              {task.assigned_agent && (
-                <div className="text-zinc-500 text-[10px] flex items-center gap-1">
-                  <span>👤</span> {task.assigned_agent.name}
-                </div>
-              )}
+              <div className="flex items-center justify-between">
+                {task.assigned_agent ? (
+                  <div className="text-zinc-500 text-[10px] flex items-center gap-1">
+                    <span>👤</span> {task.assigned_agent.name}
+                  </div>
+                ) : (
+                  <div className="text-zinc-600 text-[10px]">Não atribuído</div>
+                )}
+                {task.priority === 'high' && (
+                  <span className="text-[9px] px-1 py-0.5 rounded bg-red-500/20 text-red-400">HIGH</span>
+                )}
+              </div>
             </div>
           ))
         )}
